@@ -19,8 +19,9 @@ class ToFVL53L1X(object):
         self.tof.set_user_roi(self.my_roi)
         time.sleep(0.2)
         self.read_settings()
-
+        self.range_pub = rospy.Publisher('bot_range', Range, queue_size=1)
         self.timer = rospy.Timer(rospy.Duration(0.1), self.timer_callback)
+        
 
     def timer_callback(self, event):
         try:
@@ -71,7 +72,7 @@ if __name__ == '__main__':
         address = rospy.get_param('~address', 0x29)
         bus_num = rospy.get_param('~bus_num', 15)
         tof_sensor = ToFVL53L1X(address=address, bus_num=bus_num)
-        tof_sensor.range_pub = rospy.Publisher('tof_range', Range, queue_size=10)
+        
         rospy.on_shutdown(tof_sensor.stop_sensor)
         rospy.spin()
     except rospy.ROSInterruptException:
