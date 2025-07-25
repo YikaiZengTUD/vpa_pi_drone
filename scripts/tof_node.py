@@ -12,7 +12,7 @@ class ToFVL53L1X(object):
         self.address = address
         self.bus_num = bus_num
         self.my_roi = VL53L1X.VL53L1xUserRoi(tlx=6, tly=6, brx=9, bry=9)
-        self.tof = VL53L1X.VL53L1X(address=self.address, bus_num=self.bus_num)
+        self.tof = VL53L1X.VL53L1X(i2c_address=self.address, i2c_bus=self.bus_num)
         self.start_sensor()
         self.tof.set_timing(33000, 50)
         self.tof.set_distance_mode(2)
@@ -26,7 +26,7 @@ class ToFVL53L1X(object):
     def timer_callback(self, event):
         try:
             distance = self.tof.get_distance()
-            rospy.loginfo(f"Distance: {distance} mm")
+            # rospy.loginfo(f"Distance: {distance} mm")
             range_msg = Range()
             range_msg.header.stamp = rospy.Time.now()
             range_msg.header.frame_id = "bot_tof"
@@ -46,17 +46,8 @@ class ToFVL53L1X(object):
         sys.exit(0)
 
     def read_settings(self):
-        timing_budget, inter_measurement = self.tof.get_timing()
+        timing_budget = self.tof.get_timing()
         print("Timing budget (µs):", timing_budget)
-        print("Inter-measurement period (ms):", inter_measurement)
-        time.sleep(0.2)
-        distance_mode = self.tof.get_distance_mode()
-        print("Distance mode:", distance_mode)
-        time.sleep(0.2)
-        roi = self.tof.get_user_roi()
-        print("Current ROI: tlx={}, tly={}, brx={}, bry={}".format(
-            roi.tlx, roi.tly, roi.brx, roi.bry
-        ))
 
     def start_sensor(self):
         time.sleep(0.2)
