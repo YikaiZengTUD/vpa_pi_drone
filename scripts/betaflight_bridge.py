@@ -181,8 +181,8 @@ class BetaflightBridge:
             rospy.signal_shutdown("Exception occurred")
         finally:
             rospy.loginfo("BetaflightBridge shutting down")
-            self.safe_stop()
-
+            rospy.signal_shutdown("Exception occurred")
+            
 if __name__ == '__main__':
     try:
         bridge = BetaflightBridge()

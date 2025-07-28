@@ -213,7 +213,7 @@ class MultiWii:
             start = time.time()
 
             header = self.ser.read(5)
-            if len(header) == 0:
+            if len(header) < 5:
                 print("timeout on receiveDataPacket")
                 return None
             elif header[0] != 36:
@@ -223,7 +223,13 @@ class MultiWii:
             datalength = MultiWii.codeS.unpack(bytes([header[-2]]))[0]
             code = MultiWii.codeS.unpack(bytes([header[-1]]))[0]
             data = self.ser.read(datalength)
+            if len(data) < datalength:
+                print("timeout on receiveDataPacket")
+                return None
             checksum = self.ser.read()
+            if len(checksum) < 1:
+                print("timeout on receiveDataPacket")
+                return None
             self.checkChecksum(data, checksum)  # noop now.
             readTime = time.time()
             elapsed = readTime - start
