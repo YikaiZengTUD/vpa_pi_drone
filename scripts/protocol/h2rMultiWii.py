@@ -71,9 +71,9 @@ class MultiWii:
 
     SEND_EIGHT_STRUCT1 = struct.Struct('<2B%dh' % 8)
     codeS = struct.Struct('<B')
-    footerS = struct.Struct('B')
-    emptyString = ""
-    headerString = "$M<"
+    footerS = struct.Struct('<B')
+    emptyString = b""
+    headerString = b'$M<'
 
     """Class initialization"""
     def __init__(self, serPort):
@@ -127,7 +127,7 @@ class MultiWii:
         # Calculate the checksum: XOR of size, code, and all bytes in data
         checksum = data_length ^ code
         for byte in data:
-            checksum ^= ord(byte)
+            checksum ^= byte
 
         checksum &= 0xFF
 
@@ -149,13 +149,14 @@ class MultiWii:
                 else:
                     s1 = struct.Struct('<2B%dh' % len(data))
 
-                dataString = s1.pack(data_length, code, *data)
+                data_bytes = s1.pack(data_length, code, *data)
 
 
-                b = np.frombuffer(dataString, dtype=np.uint8)
+                b = np.frombuffer(data_bytes, dtype=np.uint8)
                 checksum = np.bitwise_xor.accumulate(b)[-1]
-                footerString = MultiWii.footerS.pack(checksum)
-                packet = MultiWii.emptyString.join((MultiWii.headerString, dataString, footerString, "\n"))
+                footer_bytes = MultiWii.footerS.pack(checksum)
+                packet = b''.join((MultiWii.headerString, data_bytes, footer_bytes, b"\n"))
+
             
             self.ser.write(packet)
             self.logger.debug("Raw command sent", packet)
@@ -215,12 +216,12 @@ class MultiWii:
             if len(header) == 0:
                 print("timeout on receiveDataPacket")
                 return None
-            elif header[0] != '$':
+            elif header[0] != 36:
                 print("Didn't get valid header: ", header)
                 raise
 
-            datalength = MultiWii.codeS.unpack(header[-2])[0]
-            code = MultiWii.codeS.unpack(header[-1])[0]
+            datalength = MultiWii.codeS.unpack(bytes([header[-2]]))[0]
+            code = MultiWii.codeS.unpack(bytes([header[-1]]))[0]
             data = self.ser.read(datalength)
             checksum = self.ser.read()
             self.checkChecksum(data, checksum)  # noop now.

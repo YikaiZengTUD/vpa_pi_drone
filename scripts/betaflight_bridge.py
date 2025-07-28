@@ -64,8 +64,22 @@ class BetaflightBridge:
         """Safely stop the bridge by disarming the drone."""
         # TODO: change this to a more graceful land rather than just disarming and free falling
         rospy.loginfo("BetaflightBridge: Stopping safely")
-        self.board.send_raw_command(8, MultiWii.SET_RAW_RC, disarm_cmd)
-        self.board.receiveDataPacket()
+        try:
+            self.board.send_raw_command(8, MultiWii.SET_RAW_RC, disarm_cmd)
+        except Exception as e:
+            rospy.logwarn(f"Disarm command failed: {e}")
+        try:
+            if self.board.ser.is_open:
+                self.board.ser.timeout = 0.1  # Just in case
+                self.board.receiveDataPacket()
+        except Exception as e:
+            rospy.logwarn(f"No response on shutdown (expected): {e}")
+
+        try:
+            self.board.close()
+            rospy.loginfo("Serial port closed.")
+        except Exception as e:
+            rospy.logwarn(f"Failed to close serial port: {e}")
 
 
     def getBoard(self):
@@ -95,7 +109,7 @@ class BetaflightBridge:
 
         previous_quaternion = self.imu_msg.orientation
         
-        previous_roll, previous_pitch, previous_yaw = transformations.euler_from_quaternion(
+        previous_roll, previous_pitch, previous_heading = transformations.euler_from_quaternion(
             [previous_quaternion.x, previous_quaternion.y, previous_quaternion.z, previous_quaternion.w]
         )
 
@@ -145,13 +159,18 @@ class BetaflightBridge:
 
     def run(self):
         """Main loop of the bridge."""
-        rate = rospy.Rate(60)
+        rate = rospy.Rate(30)
         try:
             while not rospy.is_shutdown():
 
                 self.get_imu_and_fillmsg()
                 self.imu_pub.publish(self.imu_msg)
-
+                # print("IMU data published")
+                # print("Roll: {:.2f}, Pitch: {:.2f}, Heading: {:.2f}".format(
+                #     np.rad2deg(self.imu_msg.orientation.x),
+                #     np.rad2deg(self.imu_msg.orientation.y),
+                #     np.rad2deg(self.imu_msg.orientation.z)
+                # ))
                 rate.sleep()
 
         except SerialException as e:
@@ -162,8 +181,7 @@ class BetaflightBridge:
             rospy.signal_shutdown("Exception occurred")
         finally:
             rospy.loginfo("BetaflightBridge shutting down")
-            self.board.send_raw_command(8,MultiWii.SET_RAW_RC, disarm_cmd)
-            self.board.receiveDataPacket()
+            self.safe_stop()
 
 if __name__ == '__main__':
     try:
