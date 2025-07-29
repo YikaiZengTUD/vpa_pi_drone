@@ -7,9 +7,9 @@ from protocol.h2rMultiWii import MultiWii
 from protocol import arm_cmd,idle_cmd,disarm_cmd
 from protocol import default_telemetry
 from sensor_msgs.msg import Imu, BatteryState
-from std_msgs.msg import int32 
+from std_msgs.msg import Int32 
 from serial import SerialException
-from vpsa_pi_drone.msg import RC
+from vpa_pi_drone.msg import RC
 from tf import transformations
 from enum import IntEnum
 
@@ -34,11 +34,7 @@ class BetaflightBridge:
 
     Subscribers:
     /pidrone/fly_commands
-    /pidrone/desired/mode
-    /pidrone/heartbeat/range
-    /pidrone/heartbeat/web_interface
-    /pidrone/heartbeat/pid_controller
-    /pidrone/state
+    /pidrone/mode
     """
 
     def __init__(self):
@@ -70,7 +66,7 @@ class BetaflightBridge:
         self.battery_msg = BatteryState()
         self.battery_pub = rospy.Publisher('pidrone/battery', BatteryState, queue_size=1)
 
-        self.mode_sub  = rospy.Subscriber('pidrone/mode', int32, self.mode_callback)
+        self.mode_sub  = rospy.Subscriber('pidrone/mode', Int32, self.mode_callback)
         self.send_fly_cmd = False
         self.fly_cmd_sub = rospy.Subscriber('pidrone/fly_commands', RC, self.fly_cmd_callback)
 
@@ -92,7 +88,16 @@ class BetaflightBridge:
     def fly_cmd_callback(self, msg):
         """Callback for flight commands."""
         self.last_command = self.command
-        self.command = msg.data
+        self.command = [
+            int(msg.roll),
+            int(msg.pitch),
+            int(msg.yaw),
+            int(msg.throttle),
+            int(msg.aux1),
+            int(msg.aux2),
+            int(msg.aux3),
+            int(msg.aux4)
+        ]
 
     def safe_stop(self):
         """Safely stop the bridge by disarming the drone."""
@@ -100,12 +105,15 @@ class BetaflightBridge:
         rospy.loginfo("BetaflightBridge: Stopping safely")
         try:
             self.board.send_raw_command(8, MultiWii.SET_RAW_RC, disarm_cmd)
+            rospy.loginfo("Disarm command sent successfully.")
         except Exception as e:
             rospy.logwarn(f"Disarm command failed: {e}")
         try:
             if self.board.ser.is_open:
+                rospy.loginfo("Waiting for flight controller to respond to disarm command...")
                 self.board.ser.timeout = 0.1  # Just in case
-                self.board.receiveDataPacket()
+                # self.board.receiveDataPacket(terminated=True)
+                rospy.loginfo("Flight controller responded to disarm command.")
         except Exception as e:
             rospy.logwarn(f"No response on shutdown (expected): {e}")
 
@@ -203,14 +211,21 @@ class BetaflightBridge:
             # emergency or armed to disarmed
 
         elif self.cur_mode == DroneMode.ARMED and self.prev_mode == DroneMode.DISARMED:
+            rospy.loginfo("BetaflightBridge Sent: Switching to ARMED mode")
             self.board.send_raw_command(8, MultiWii.SET_RAW_RC, arm_cmd)
+            self.command = arm_cmd
             self.send_fly_cmd = True
             # disarmed to armed
         
         elif self.cur_mode == DroneMode.FLYING and self.prev_mode == DroneMode.ARMED:
             self.send_fly_cmd = True
+            self.command = idle_cmd
             # armed to flying
-        
+        elif self.cur_mode == DroneMode.DISARMED and self.prev_mode == DroneMode.FLYING:
+            rospy.loginfo("BetaflightBridge Sent: Switching to DISARMED mode")
+            self.send_fly_cmd = False
+            self.board.send_raw_command(8, MultiWii.SET_RAW_RC, disarm_cmd)
+            # flying to disarmed
         elif self.cur_mode == DroneMode.EMERGENCY and self.prev_mode == DroneMode.FLYING:
             rospy.loginfo("BetaflightBridge: Emergency mode activated, disarming, must restart")
             self.send_fly_cmd = False
@@ -229,20 +244,26 @@ class BetaflightBridge:
 
     def run(self):
         """Main loop of the bridge."""
-        rate = rospy.Rate(30)
+        rate = rospy.Rate(60)
         try:
             while not rospy.is_shutdown():
 
                 # Read the latest data from the flight controller
-                self.get_imu_and_fillmsg()
-                self.imu_pub.publish(self.imu_msg)
+                if not hasattr(self, 'loop_counter'):
+                    self.loop_counter = 0
+                self.loop_counter += 1
 
-                self.get_battery_and_fillmsg()
-                self.battery_pub.publish(self.battery_msg)
+                if self.loop_counter % 2 == 0:
+                    self.get_imu_and_fillmsg()
+                    self.imu_pub.publish(self.imu_msg)
+
+                    self.get_battery_and_fillmsg()
+                    self.battery_pub.publish(self.battery_msg)
 
                 if self.send_fly_cmd:
-                    if not np.array_equal(self.command, self.last_command):
-                        self.board.send_raw_command(8, MultiWii.SET_RAW_RC, self.command)
+                    self.board.send_raw_command(8, MultiWii.SET_RAW_RC, self.command)
+                else:
+                    self.board.send_raw_command(8, MultiWii.SET_RAW_RC, disarm_cmd)
 
                 rate.sleep()
 

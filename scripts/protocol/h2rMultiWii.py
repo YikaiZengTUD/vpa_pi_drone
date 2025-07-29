@@ -160,6 +160,7 @@ class MultiWii:
             
             self.ser.write(packet)
             self.logger.debug("Raw command sent", packet)
+            #print("Raw command sent:", packet)
 
 
 
@@ -208,10 +209,17 @@ class MultiWii:
             result.append(self.receiveDataPacket())
         return result
 
-    def receiveDataPacket(self):
+    def receiveDataPacket(self,terminated=False):
+        if terminated:
+            acquired = self.serial_port_read_lock.acquire(timeout=1)
+            if not acquired:
+                print("Serial lock acquisition timed out")
+                return
+    
         with self.serial_port_read_lock:
+            if terminated:
+                print("Starting final receiveDataPacket")
             start = time.time()
-
             header = self.ser.read(5)
             if len(header) < 5:
                 print("timeout on receiveDataPacket")

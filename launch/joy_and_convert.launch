@@ -1,0 +1,8 @@
+<launch>
+    <node name="joy_node" pkg="joy" type="joy_node">
+        <param name="dev" value="/dev/input/js0"/>
+        <param name="deadzone" value="0.12"/>
+    </node>
+    <node pkg="vpa_pi_drone" type="manual_v_move.py" name="joy2RC_node" output="screen">
+    </node>
+</launch>
