@@ -7,9 +7,20 @@ from protocol.h2rMultiWii import MultiWii
 from protocol import arm_cmd,idle_cmd,disarm_cmd
 from protocol import default_telemetry
 from sensor_msgs.msg import Imu, BatteryState
+from std_msgs.msg import int32 
 from serial import SerialException
-# from vpsa_pi_drone.msg import RC
+from vpsa_pi_drone.msg import RC
 from tf import transformations
+from enum import IntEnum
+
+
+class DroneMode(IntEnum):
+    DISARMED   = 0
+    ARMED      = 1
+    FLYING     = 2
+    EMERGENCY  = 3
+
+
 class BetaflightBridge:
 
     """A class that sends the current [r,p,y,t] commands to the flight
@@ -37,8 +48,10 @@ class BetaflightBridge:
             return
         rospy.init_node('betaflight_bridge', anonymous=False)
         
-        self.prev_mode = 'DISARMED'
-        self.cur_mode  = 'DISARMED'
+
+
+        self.prev_mode = DroneMode.DISARMED
+        self.cur_mode  = DroneMode.DISARMED
 
         self.command      = disarm_cmd
         self.last_command = self.command
@@ -54,11 +67,32 @@ class BetaflightBridge:
         self.last_timestamp_imu = rospy.Time.now()
 
         self.last_timestamp_imu = rospy.Time.now()
-    
+        self.battery_msg = BatteryState()
+        self.battery_pub = rospy.Publisher('pidrone/battery', BatteryState, queue_size=1)
+
+        self.mode_sub  = rospy.Subscriber('pidrone/mode', int32, self.mode_callback)
+        self.send_fly_cmd = False
+        self.fly_cmd_sub = rospy.Subscriber('pidrone/fly_commands', RC, self.fly_cmd_callback)
+
         # Register shutdown hook
         rospy.on_shutdown(self.safe_stop)
 
         rospy.loginfo("BetaflightBridge initialized, standing by")
+
+    def mode_callback(self, msg):
+        """Callback for mode changes."""
+        new_mode = DroneMode(msg.data)
+        if new_mode != self.cur_mode:
+            rospy.loginfo(f"BetaflightBridge: Mode changed from {self.cur_mode.name} to {new_mode.name}")
+            self.prev_mode = self.cur_mode
+            self.cur_mode = new_mode
+
+            self.handle_mode_transition()
+
+    def fly_cmd_callback(self, msg):
+        """Callback for flight commands."""
+        self.last_command = self.command
+        self.command = msg.data
 
     def safe_stop(self):
         """Safely stop the bridge by disarming the drone."""
@@ -152,6 +186,42 @@ class BetaflightBridge:
         self.imu_msg.linear_acceleration.x = lin_acc_x_drone_body
         self.imu_msg.linear_acceleration.y = lin_acc_y_drone_body
         self.imu_msg.linear_acceleration.z = lin_acc_z_drone_body
+        
+
+    def get_battery_and_fillmsg(self):
+        self.board.getData(MultiWii.ANALOG)
+        self.battery_msg.header.stamp = rospy.Time.now()
+        self.battery_msg.voltage  = self.board.analog['vbat'] * 0.1
+        self.battery_msg.current  = self.board.analog['amperage']
+        self.battery_msg.design_capacity = 1.5
+
+    def handle_mode_transition(self):
+        # send the command to the flight controller
+        if self.cur_mode == DroneMode.DISARMED and (self.prev_mode == DroneMode.EMERGENCY or self.prev_mode == DroneMode.ARMED):
+            self.board.send_raw_command(8, MultiWii.SET_RAW_RC, disarm_cmd)
+            self.send_fly_cmd = False
+            # emergency or armed to disarmed
+
+        elif self.cur_mode == DroneMode.ARMED and self.prev_mode == DroneMode.DISARMED:
+            self.board.send_raw_command(8, MultiWii.SET_RAW_RC, arm_cmd)
+            self.send_fly_cmd = True
+            # disarmed to armed
+        
+        elif self.cur_mode == DroneMode.FLYING and self.prev_mode == DroneMode.ARMED:
+            self.send_fly_cmd = True
+            # armed to flying
+        
+        elif self.cur_mode == DroneMode.EMERGENCY and self.prev_mode == DroneMode.FLYING:
+            rospy.loginfo("BetaflightBridge: Emergency mode activated, disarming, must restart")
+            self.send_fly_cmd = False
+            self.safe_stop()
+            # flying to emergency
+
+        elif self.cur_mode == DroneMode.ARMED and self.prev_mode == DroneMode.FLYING:
+            # flying to armed
+            pass
+        else:
+            rospy.logwarn(f"BetaflightBridge: Unhandled mode transition from {self.prev_mode.name} to {self.cur_mode.name}")
 
 
     def near_zero(self, value, threshold=0.001):
@@ -163,14 +233,17 @@ class BetaflightBridge:
         try:
             while not rospy.is_shutdown():
 
+                # Read the latest data from the flight controller
                 self.get_imu_and_fillmsg()
                 self.imu_pub.publish(self.imu_msg)
-                # print("IMU data published")
-                # print("Roll: {:.2f}, Pitch: {:.2f}, Heading: {:.2f}".format(
-                #     np.rad2deg(self.imu_msg.orientation.x),
-                #     np.rad2deg(self.imu_msg.orientation.y),
-                #     np.rad2deg(self.imu_msg.orientation.z)
-                # ))
+
+                self.get_battery_and_fillmsg()
+                self.battery_pub.publish(self.battery_msg)
+
+                if self.send_fly_cmd:
+                    if not np.array_equal(self.command, self.last_command):
+                        self.board.send_raw_command(8, MultiWii.SET_RAW_RC, self.command)
+
                 rate.sleep()
 
         except SerialException as e:
