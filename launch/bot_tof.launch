@@ -1,4 +1,4 @@
 <launch>
-    <node pkg="vpa_pi_drone" type="tof_node.py" name="tof_node" output="screen">
+    <node pkg="vpa_pi_drone" type="tof_node_vpa.py" name="tof_node" output="screen">
     </node>
 </launch>
