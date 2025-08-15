@@ -20,7 +20,7 @@ class ToFVL53L1XPlus:
         self.range_pub = rospy.Publisher('bot_range', Range, queue_size=1)
         self.range_status_pub = rospy.Publisher('bot_range_status', Int32, queue_size=1)
         
-        self.timer = rospy.Timer(rospy.Duration(0.1), self.timer_callback)
+        self.timer = rospy.Timer(rospy.Duration(0.05), self.timer_callback)
 
     def timer_callback(self, event):
         try:
