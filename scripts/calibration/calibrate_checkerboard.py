@@ -8,6 +8,7 @@ import cv2 as cv
 import numpy as np
 import os
 from datetime import datetime, timezone
+import yaml
 # ----------------- CONFIG -----------------
 # Get the directory where the script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -67,35 +68,53 @@ def R_to_quat(R):
     return np.array([w, x, y, z], dtype=float)
 
 def write_transforms_yaml(path, T_base_cam, T_cam_base):
+    
     R_bc = T_base_cam[:3,:3]; t_bc = T_base_cam[:3,3]
     R_cb = T_cam_base[:3,:3]; t_cb = T_cam_base[:3,3]
     q_bc = R_to_quat(R_bc)
     q_cb = R_to_quat(R_cb)
 
-    # Use OpenCV FileStorage so it’s portable and simple
-    fs = cv.FileStorage(path, cv.FILE_STORAGE_WRITE)
-    fs.write("stamp", datetime.now(timezone.utc).isoformat())
-    fs.startWriteStruct("frames", cv.FileNode_MAP)
-    fs.write("parent", "base")
-    fs.write("child", "camera")
-    fs.endWriteStruct()
+    # Create dictionary structure for YAML
+    data = {
+        "stamp": datetime.now(timezone.utc).isoformat(),
+        "frames": {
+            "parent": "base",
+            "child": "camera"
+        },
+        "T_base_cam": {
+            "matrix": T_base_cam.tolist()
+        },
+        "T_cam_base": {
+            "matrix": T_cam_base.tolist()
+        },
+        "rotation_base_cam": {
+            "w": float(q_bc[0]),
+            "x": float(q_bc[1]),
+            "y": float(q_bc[2]),
+            "z": float(q_bc[3])
+        },
+        "translation_base_cam": {
+            "x": float(t_bc[0]),
+            "y": float(t_bc[1]),
+            "z": float(t_bc[2])
+        },
+        "rotation_cam_base": {
+            "w": float(q_cb[0]),
+            "x": float(q_cb[1]),
+            "y": float(q_cb[2]),
+            "z": float(q_cb[3])
+        },
+        "translation_cam_base": {
+            "x": float(t_cb[0]),
+            "y": float(t_cb[1]),
+            "z": float(t_cb[2])
+        }
+    }
 
-    # 4x4 matrices
-    fs.write("T_base_cam", T_base_cam.astype(np.float64))
-    fs.write("T_cam_base", T_cam_base.astype(np.float64))
-
-    # Decomposed forms (handy in other code)
-    fs.startWriteStruct("base_to_cam", cv.FileNode_MAP)
-    fs.write("translation", t_bc.astype(np.float64).reshape(3,1))
-    fs.write("quaternion_xyzw", np.array([q_bc[1], q_bc[2], q_bc[3], q_bc[0]], float).reshape(4,1))
-    fs.endWriteStruct()
-
-    fs.startWriteStruct("cam_to_base", cv.FileNode_MAP)
-    fs.write("translation", t_cb.astype(np.float64).reshape(3,1))
-    fs.write("quaternion_xyzw", np.array([q_cb[1], q_cb[2], q_cb[3], q_cb[0]], float).reshape(4,1))
-    fs.endWriteStruct()
-
-    fs.release()
+    # Write to YAML file
+    with open(path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False)
+    
     print(f"Wrote transforms -> {path}")
 
 def make_object_points(cols, rows, square):
