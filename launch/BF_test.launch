@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="vpa_pi_drone" type="betaflight_bridge.py" name="betaflight_bridge" output="screen"/>
+    <node pkg="vpa_pi_drone" type="MSPbridge_test.py" name="mspbridge_test" output="screen"/>
+</launch>
